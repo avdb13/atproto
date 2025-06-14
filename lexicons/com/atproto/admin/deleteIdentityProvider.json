@@ -1,0 +1,17 @@
+{
+  "lexicon": 1,
+  "id": "com.atproto.admin.deleteIdentityProvider",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Delete an identity provider. Requires auth.",
+      "parameters": {
+        "type": "params",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" }
+        }
+      }
+    }
+  }
+}

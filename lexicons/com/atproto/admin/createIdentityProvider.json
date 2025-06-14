@@ -1,0 +1,91 @@
+{
+  "lexicon": 1,
+  "id": "com.atproto.admin.createIdentityProvider",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create an identity provider. Implemented by PDS.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "icon": {
+              "type": "string",
+              "format": "uri"
+            },
+            "issuer": {
+              "type": "string",
+              "format": "uri"
+            },
+            "clientId": { "type": "string" },
+            "clientSecret": { "type": "string" },
+            "metadata": {
+              "type": "union",
+              "refs": ["#discoverable", "#metadata"]
+            }
+          }
+        }
+      },
+      "errors": [{ "name": "InvalidIdentityProvider" }]
+    },
+    "authMethods": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "knownValues": [
+          "client_secret_basic",
+          "client_secret_post",
+          "private_key_jwt",
+          "client_secret_jwt",
+          "none"
+        ]
+      }
+    },
+    "endpoints": {
+      "type": "object",
+      "required": ["authorization", "token"],
+      "properties": {
+        "authorization": { "type": "string", "format": "uri" },
+        "token": { "type": "string", "format": "uri" },
+        "userInfo": { "type": "string", "format": "uri" }
+      }
+    },
+    "mappings": {
+      "type": "object",
+      "required": ["sub"],
+      "properties": {
+        "sub": { "type": "string" },
+        "picture": { "type": "string" },
+        "email": { "type": "string" }
+      }
+    },
+    "discoverable": {
+      "type": "object",
+      "required": ["discoverable"],
+      "properties": {
+        "discoverable": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["endpoints", "scopes"],
+      "properties": {
+        "endpoints": { "type": "ref", "ref": "#endpoints" },
+        "mappings": { "type": "ref", "ref": "#mappings" },
+        "authMethods": { "type": "ref", "ref": "#authMethods" },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

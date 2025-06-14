@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "com.atproto.server.listIdentityProviders",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "List all available identity providers.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["identityProviders"],
+          "properties": {
+            "identityProviders": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#identityProvider"
+              }
+            }
+          }
+        }
+      },
+      "errors": [{ "name": "AccountTakedown" }]
+    },
+    "identityProvider": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "icon": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    }
+  }
+}
