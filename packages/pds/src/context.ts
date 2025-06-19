@@ -52,6 +52,7 @@ import { ModerationMailer } from './mailer/moderation'
 import { LocalViewer, LocalViewerCreator } from './read-after-write/viewer'
 import { getRedisClient } from './redis'
 import { Sequencer } from './sequencer'
+import { SSOManager } from './sso/sso'
 
 export type AppContextOptions = {
   actorStore: ActorStore
@@ -63,6 +64,7 @@ export type AppContextOptions = {
   idResolver: IdResolver
   plcClient: plc.Client
   accountManager: AccountManager
+  ssoManager: SSOManager
   sequencer: Sequencer
   backgroundQueue: BackgroundQueue
   redisScratch?: Redis
@@ -91,6 +93,7 @@ export class AppContext {
   public idResolver: IdResolver
   public plcClient: plc.Client
   public accountManager: AccountManager
+  public ssoManager: SSOManager
   public sequencer: Sequencer
   public backgroundQueue: BackgroundQueue
   public redisScratch?: Redis
@@ -118,6 +121,7 @@ export class AppContext {
     this.idResolver = opts.idResolver
     this.plcClient = opts.plcClient
     this.accountManager = opts.accountManager
+    this.ssoManager = opts.ssoManager
     this.sequencer = opts.sequencer
     this.backgroundQueue = opts.backgroundQueue
     this.redisScratch = opts.redisScratch
@@ -144,17 +148,17 @@ export class AppContext {
     const blobstore =
       cfg.blobstore.provider === 's3'
         ? S3BlobStore.creator({
-            bucket: cfg.blobstore.bucket,
-            region: cfg.blobstore.region,
-            endpoint: cfg.blobstore.endpoint,
-            forcePathStyle: cfg.blobstore.forcePathStyle,
-            credentials: cfg.blobstore.credentials,
-            uploadTimeoutMs: cfg.blobstore.uploadTimeoutMs,
-          })
+          bucket: cfg.blobstore.bucket,
+          region: cfg.blobstore.region,
+          endpoint: cfg.blobstore.endpoint,
+          forcePathStyle: cfg.blobstore.forcePathStyle,
+          credentials: cfg.blobstore.credentials,
+          uploadTimeoutMs: cfg.blobstore.uploadTimeoutMs,
+        })
         : DiskBlobStore.creator(
-            cfg.blobstore.location,
-            cfg.blobstore.tempLocation,
-          )
+          cfg.blobstore.location,
+          cfg.blobstore.tempLocation,
+        )
 
     const mailTransport =
       cfg.email !== null
@@ -272,14 +276,21 @@ export class AppContext {
     )
     await accountManager.migrateOrThrow()
 
+    const ssoManager = new SSOManager(
+      cfg.db.ssoDbLoc,
+      cfg.db.disableWalAutoCheckpoint
+    )
+
+    await ssoManager.migrateOrThrow()
+
     const plcRotationKey =
       secrets.plcRotationKey.provider === 'kms'
         ? await KmsKeypair.load({
-            keyId: secrets.plcRotationKey.keyId,
-          })
+          keyId: secrets.plcRotationKey.keyId,
+        })
         : await crypto.Secp256k1Keypair.import(
-            secrets.plcRotationKey.privateKeyHex,
-          )
+          secrets.plcRotationKey.privateKeyHex,
+        )
 
     const localViewer = LocalViewer.creator(
       accountManager,
@@ -296,16 +307,16 @@ export class AppContext {
       factory: cfg.proxy.disableSsrfProtection
         ? undefined
         : (origin, opts) => {
-            const { protocol, hostname } =
-              origin instanceof URL ? origin : new URL(origin)
-            if (protocol !== 'https:') {
-              throw new Error(`Forbidden protocol "${protocol}"`)
-            }
-            if (isUnicastIp(hostname) === false) {
-              throw new Error('Hostname resolved to non-unicast address')
-            }
-            return new undici.Pool(origin, opts)
-          },
+          const { protocol, hostname } =
+            origin instanceof URL ? origin : new URL(origin)
+          if (protocol !== 'https:') {
+            throw new Error(`Forbidden protocol "${protocol}"`)
+          }
+          if (isUnicastIp(hostname) === false) {
+            throw new Error('Hostname resolved to non-unicast address')
+          }
+          return new undici.Pool(origin, opts)
+        },
       connect: {
         lookup: cfg.proxy.disableSsrfProtection ? undefined : unicastLookup,
       },
@@ -313,10 +324,10 @@ export class AppContext {
     const proxyAgent =
       cfg.proxy.maxRetries > 0
         ? new undici.RetryAgent(proxyAgentBase, {
-            statusCodes: [], // Only retry on socket errors
-            methods: ['GET', 'HEAD'],
-            maxRetries: cfg.proxy.maxRetries,
-          })
+          statusCodes: [], // Only retry on socket errors
+          methods: ['GET', 'HEAD'],
+          maxRetries: cfg.proxy.maxRetries,
+        })
         : proxyAgentBase
 
     // A fetch() function that protects against SSRF attacks, large responses &
@@ -340,41 +351,41 @@ export class AppContext {
 
     const oauthProvider = cfg.oauth.provider
       ? new OAuthProvider({
-          issuer: cfg.oauth.issuer,
-          keyset: [await JoseKey.fromKeyLike(jwtSecretKey, undefined, 'HS256')],
-          store: new OAuthStore(
-            accountManager,
-            actorStore,
-            imageUrlBuilder,
-            backgroundQueue,
-            mailer,
-            sequencer,
-            plcClient,
-            plcRotationKey,
-            cfg.service.publicUrl,
-            cfg.identity.recoveryDidKey,
-          ),
-          redis: redisScratch,
-          dpopSecret: secrets.dpopSecret,
-          inviteCodeRequired: cfg.invites.required,
-          availableUserDomains: cfg.identity.serviceHandleDomains,
-          hcaptcha: cfg.oauth.provider.hcaptcha,
-          branding: cfg.oauth.provider.branding,
-          safeFetch,
-          metadata: {
-            protected_resources: [new URL(cfg.oauth.issuer).origin],
-            scopes_supported: [
-              'transition:email',
-              'transition:generic',
-              'transition:chat.bsky',
-            ],
-          },
-          // If the PDS is both an authorization server & resource server (no
-          // entryway), there is no need to use JWTs as access tokens. Instead,
-          // the PDS can use tokenId as access tokens. This allows the PDS to
-          // always use up-to-date token data from the token store.
-          accessTokenMode: AccessTokenMode.light,
-        })
+        issuer: cfg.oauth.issuer,
+        keyset: [await JoseKey.fromKeyLike(jwtSecretKey, undefined, 'HS256')],
+        store: new OAuthStore(
+          accountManager,
+          actorStore,
+          imageUrlBuilder,
+          backgroundQueue,
+          mailer,
+          sequencer,
+          plcClient,
+          plcRotationKey,
+          cfg.service.publicUrl,
+          cfg.identity.recoveryDidKey,
+        ),
+        redis: redisScratch,
+        dpopSecret: secrets.dpopSecret,
+        inviteCodeRequired: cfg.invites.required,
+        availableUserDomains: cfg.identity.serviceHandleDomains,
+        hcaptcha: cfg.oauth.provider.hcaptcha,
+        branding: cfg.oauth.provider.branding,
+        safeFetch,
+        metadata: {
+          protected_resources: [new URL(cfg.oauth.issuer).origin],
+          scopes_supported: [
+            'transition:email',
+            'transition:generic',
+            'transition:chat.bsky',
+          ],
+        },
+        // If the PDS is both an authorization server & resource server (no
+        // entryway), there is no need to use JWTs as access tokens. Instead,
+        // the PDS can use tokenId as access tokens. This allows the PDS to
+        // always use up-to-date token data from the token store.
+        accessTokenMode: AccessTokenMode.light,
+      })
       : undefined
 
     const oauthVerifier: OAuthVerifier =
@@ -412,6 +423,7 @@ export class AppContext {
       idResolver,
       plcClient,
       accountManager,
+      ssoManager,
       sequencer,
       backgroundQueue,
       redisScratch,

@@ -9,7 +9,9 @@ import {
   type StreamAuthVerifier,
 } from '@atproto/xrpc-server'
 import { schemas } from './lexicons.js'
+import * as ComAtprotoAdminCreateIdentityProvider from './types/com/atproto/admin/createIdentityProvider.js'
 import * as ComAtprotoAdminDeleteAccount from './types/com/atproto/admin/deleteAccount.js'
+import * as ComAtprotoAdminDeleteIdentityProvider from './types/com/atproto/admin/deleteIdentityProvider.js'
 import * as ComAtprotoAdminDisableAccountInvites from './types/com/atproto/admin/disableAccountInvites.js'
 import * as ComAtprotoAdminDisableInviteCodes from './types/com/atproto/admin/disableInviteCodes.js'
 import * as ComAtprotoAdminEnableAccountInvites from './types/com/atproto/admin/enableAccountInvites.js'
@@ -71,6 +73,9 @@ import * as ComAtprotoServerReserveSigningKey from './types/com/atproto/server/r
 import * as ComAtprotoServerResetPassword from './types/com/atproto/server/resetPassword.js'
 import * as ComAtprotoServerRevokeAppPassword from './types/com/atproto/server/revokeAppPassword.js'
 import * as ComAtprotoServerUpdateEmail from './types/com/atproto/server/updateEmail.js'
+import * as ComAtprotoSsoGetCallback from './types/com/atproto/sso/getCallback.js'
+import * as ComAtprotoSsoGetRedirect from './types/com/atproto/sso/getRedirect.js'
+import * as ComAtprotoSsoListIdentityProviders from './types/com/atproto/sso/listIdentityProviders.js'
 import * as ComAtprotoSyncGetBlob from './types/com/atproto/sync/getBlob.js'
 import * as ComAtprotoSyncGetBlocks from './types/com/atproto/sync/getBlocks.js'
 import * as ComAtprotoSyncGetCheckout from './types/com/atproto/sync/getCheckout.js'
@@ -82,8 +87,8 @@ import * as ComAtprotoSyncGetRepo from './types/com/atproto/sync/getRepo.js'
 import * as ComAtprotoSyncGetRepoStatus from './types/com/atproto/sync/getRepoStatus.js'
 import * as ComAtprotoSyncListBlobs from './types/com/atproto/sync/listBlobs.js'
 import * as ComAtprotoSyncListHosts from './types/com/atproto/sync/listHosts.js'
-import * as ComAtprotoSyncListRepos from './types/com/atproto/sync/listRepos.js'
 import * as ComAtprotoSyncListReposByCollection from './types/com/atproto/sync/listReposByCollection.js'
+import * as ComAtprotoSyncListRepos from './types/com/atproto/sync/listRepos.js'
 import * as ComAtprotoSyncNotifyOfUpdate from './types/com/atproto/sync/notifyOfUpdate.js'
 import * as ComAtprotoSyncRequestCrawl from './types/com/atproto/sync/requestCrawl.js'
 import * as ComAtprotoSyncSubscribeRepos from './types/com/atproto/sync/subscribeRepos.js'
@@ -102,9 +107,9 @@ import * as AppBskyFeedDescribeFeedGenerator from './types/app/bsky/feed/describ
 import * as AppBskyFeedGetActorFeeds from './types/app/bsky/feed/getActorFeeds.js'
 import * as AppBskyFeedGetActorLikes from './types/app/bsky/feed/getActorLikes.js'
 import * as AppBskyFeedGetAuthorFeed from './types/app/bsky/feed/getAuthorFeed.js'
-import * as AppBskyFeedGetFeed from './types/app/bsky/feed/getFeed.js'
 import * as AppBskyFeedGetFeedGenerator from './types/app/bsky/feed/getFeedGenerator.js'
 import * as AppBskyFeedGetFeedGenerators from './types/app/bsky/feed/getFeedGenerators.js'
+import * as AppBskyFeedGetFeed from './types/app/bsky/feed/getFeed.js'
 import * as AppBskyFeedGetFeedSkeleton from './types/app/bsky/feed/getFeedSkeleton.js'
 import * as AppBskyFeedGetLikes from './types/app/bsky/feed/getLikes.js'
 import * as AppBskyFeedGetListFeed from './types/app/bsky/feed/getListFeed.js'
@@ -121,8 +126,8 @@ import * as AppBskyGraphGetBlocks from './types/app/bsky/graph/getBlocks.js'
 import * as AppBskyGraphGetFollowers from './types/app/bsky/graph/getFollowers.js'
 import * as AppBskyGraphGetFollows from './types/app/bsky/graph/getFollows.js'
 import * as AppBskyGraphGetKnownFollowers from './types/app/bsky/graph/getKnownFollowers.js'
-import * as AppBskyGraphGetList from './types/app/bsky/graph/getList.js'
 import * as AppBskyGraphGetListBlocks from './types/app/bsky/graph/getListBlocks.js'
+import * as AppBskyGraphGetList from './types/app/bsky/graph/getList.js'
 import * as AppBskyGraphGetListMutes from './types/app/bsky/graph/getListMutes.js'
 import * as AppBskyGraphGetLists from './types/app/bsky/graph/getLists.js'
 import * as AppBskyGraphGetMutes from './types/app/bsky/graph/getMutes.js'
@@ -171,17 +176,17 @@ import * as ChatBskyActorExportAccountData from './types/chat/bsky/actor/exportA
 import * as ChatBskyConvoAcceptConvo from './types/chat/bsky/convo/acceptConvo.js'
 import * as ChatBskyConvoAddReaction from './types/chat/bsky/convo/addReaction.js'
 import * as ChatBskyConvoDeleteMessageForSelf from './types/chat/bsky/convo/deleteMessageForSelf.js'
-import * as ChatBskyConvoGetConvo from './types/chat/bsky/convo/getConvo.js'
 import * as ChatBskyConvoGetConvoAvailability from './types/chat/bsky/convo/getConvoAvailability.js'
 import * as ChatBskyConvoGetConvoForMembers from './types/chat/bsky/convo/getConvoForMembers.js'
+import * as ChatBskyConvoGetConvo from './types/chat/bsky/convo/getConvo.js'
 import * as ChatBskyConvoGetLog from './types/chat/bsky/convo/getLog.js'
 import * as ChatBskyConvoGetMessages from './types/chat/bsky/convo/getMessages.js'
 import * as ChatBskyConvoLeaveConvo from './types/chat/bsky/convo/leaveConvo.js'
 import * as ChatBskyConvoListConvos from './types/chat/bsky/convo/listConvos.js'
 import * as ChatBskyConvoMuteConvo from './types/chat/bsky/convo/muteConvo.js'
 import * as ChatBskyConvoRemoveReaction from './types/chat/bsky/convo/removeReaction.js'
-import * as ChatBskyConvoSendMessage from './types/chat/bsky/convo/sendMessage.js'
 import * as ChatBskyConvoSendMessageBatch from './types/chat/bsky/convo/sendMessageBatch.js'
+import * as ChatBskyConvoSendMessage from './types/chat/bsky/convo/sendMessage.js'
 import * as ChatBskyConvoUnmuteConvo from './types/chat/bsky/convo/unmuteConvo.js'
 import * as ChatBskyConvoUpdateAllRead from './types/chat/bsky/convo/updateAllRead.js'
 import * as ChatBskyConvoUpdateRead from './types/chat/bsky/convo/updateRead.js'
@@ -210,10 +215,10 @@ import * as ToolsOzoneSetDeleteSet from './types/tools/ozone/set/deleteSet.js'
 import * as ToolsOzoneSetDeleteValues from './types/tools/ozone/set/deleteValues.js'
 import * as ToolsOzoneSetGetValues from './types/tools/ozone/set/getValues.js'
 import * as ToolsOzoneSetQuerySets from './types/tools/ozone/set/querySets.js'
-import * as ToolsOzoneSetUpsertSet from './types/tools/ozone/set/upsertSet.js'
 import * as ToolsOzoneSettingListOptions from './types/tools/ozone/setting/listOptions.js'
 import * as ToolsOzoneSettingRemoveOptions from './types/tools/ozone/setting/removeOptions.js'
 import * as ToolsOzoneSettingUpsertOption from './types/tools/ozone/setting/upsertOption.js'
+import * as ToolsOzoneSetUpsertSet from './types/tools/ozone/set/upsertSet.js'
 import * as ToolsOzoneSignatureFindCorrelation from './types/tools/ozone/signature/findCorrelation.js'
 import * as ToolsOzoneSignatureFindRelatedAccounts from './types/tools/ozone/signature/findRelatedAccounts.js'
 import * as ToolsOzoneSignatureSearchAccounts from './types/tools/ozone/signature/searchAccounts.js'
@@ -310,6 +315,7 @@ export class ComAtprotoNS {
   moderation: ComAtprotoModerationNS
   repo: ComAtprotoRepoNS
   server: ComAtprotoServerNS
+  sso: ComAtprotoSsoNS
   sync: ComAtprotoSyncNS
   temp: ComAtprotoTempNS
 
@@ -322,6 +328,7 @@ export class ComAtprotoNS {
     this.moderation = new ComAtprotoModerationNS(server)
     this.repo = new ComAtprotoRepoNS(server)
     this.server = new ComAtprotoServerNS(server)
+    this.sso = new ComAtprotoSsoNS(server)
     this.sync = new ComAtprotoSyncNS(server)
     this.temp = new ComAtprotoTempNS(server)
   }
@@ -334,6 +341,17 @@ export class ComAtprotoAdminNS {
     this._server = server
   }
 
+  createIdentityProvider<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      ComAtprotoAdminCreateIdentityProvider.Handler<ExtractAuth<AV>>,
+      ComAtprotoAdminCreateIdentityProvider.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.createIdentityProvider' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
   deleteAccount<AV extends AuthVerifier>(
     cfg: ConfigOf<
       AV,
@@ -342,6 +360,17 @@ export class ComAtprotoAdminNS {
     >,
   ) {
     const nsid = 'com.atproto.admin.deleteAccount' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  deleteIdentityProvider<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      ComAtprotoAdminDeleteIdentityProvider.Handler<ExtractAuth<AV>>,
+      ComAtprotoAdminDeleteIdentityProvider.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'com.atproto.admin.deleteIdentityProvider' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
@@ -1069,6 +1098,47 @@ export class ComAtprotoServerNS {
   }
 }
 
+export class ComAtprotoSsoNS {
+  _server: Server
+
+  constructor(server: Server) {
+    this._server = server
+  }
+
+  getCallback<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      ComAtprotoSsoGetCallback.Handler<ExtractAuth<AV>>,
+      ComAtprotoSsoGetCallback.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'com.atproto.sso.getCallback' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  getRedirect<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      ComAtprotoSsoGetRedirect.Handler<ExtractAuth<AV>>,
+      ComAtprotoSsoGetRedirect.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'com.atproto.sso.getRedirect' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  listIdentityProviders<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      ComAtprotoSsoListIdentityProviders.Handler<ExtractAuth<AV>>,
+      ComAtprotoSsoListIdentityProviders.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'com.atproto.sso.listIdentityProviders' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+}
+
 export class ComAtprotoSyncNS {
   _server: Server
 
@@ -1197,17 +1267,6 @@ export class ComAtprotoSyncNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
-  listRepos<AV extends AuthVerifier>(
-    cfg: ConfigOf<
-      AV,
-      ComAtprotoSyncListRepos.Handler<ExtractAuth<AV>>,
-      ComAtprotoSyncListRepos.HandlerReqCtx<ExtractAuth<AV>>
-    >,
-  ) {
-    const nsid = 'com.atproto.sync.listRepos' // @ts-ignore
-    return this._server.xrpc.method(nsid, cfg)
-  }
-
   listReposByCollection<AV extends AuthVerifier>(
     cfg: ConfigOf<
       AV,
@@ -1216,6 +1275,17 @@ export class ComAtprotoSyncNS {
     >,
   ) {
     const nsid = 'com.atproto.sync.listReposByCollection' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  listRepos<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      ComAtprotoSyncListRepos.Handler<ExtractAuth<AV>>,
+      ComAtprotoSyncListRepos.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'com.atproto.sync.listRepos' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
@@ -1485,17 +1555,6 @@ export class AppBskyFeedNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
-  getFeed<AV extends AuthVerifier>(
-    cfg: ConfigOf<
-      AV,
-      AppBskyFeedGetFeed.Handler<ExtractAuth<AV>>,
-      AppBskyFeedGetFeed.HandlerReqCtx<ExtractAuth<AV>>
-    >,
-  ) {
-    const nsid = 'app.bsky.feed.getFeed' // @ts-ignore
-    return this._server.xrpc.method(nsid, cfg)
-  }
-
   getFeedGenerator<AV extends AuthVerifier>(
     cfg: ConfigOf<
       AV,
@@ -1515,6 +1574,17 @@ export class AppBskyFeedNS {
     >,
   ) {
     const nsid = 'app.bsky.feed.getFeedGenerators' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  getFeed<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      AppBskyFeedGetFeed.Handler<ExtractAuth<AV>>,
+      AppBskyFeedGetFeed.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'app.bsky.feed.getFeed' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
@@ -1702,17 +1772,6 @@ export class AppBskyGraphNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
-  getList<AV extends AuthVerifier>(
-    cfg: ConfigOf<
-      AV,
-      AppBskyGraphGetList.Handler<ExtractAuth<AV>>,
-      AppBskyGraphGetList.HandlerReqCtx<ExtractAuth<AV>>
-    >,
-  ) {
-    const nsid = 'app.bsky.graph.getList' // @ts-ignore
-    return this._server.xrpc.method(nsid, cfg)
-  }
-
   getListBlocks<AV extends AuthVerifier>(
     cfg: ConfigOf<
       AV,
@@ -1721,6 +1780,17 @@ export class AppBskyGraphNS {
     >,
   ) {
     const nsid = 'app.bsky.graph.getListBlocks' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  getList<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      AppBskyGraphGetList.Handler<ExtractAuth<AV>>,
+      AppBskyGraphGetList.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'app.bsky.graph.getList' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
@@ -2334,17 +2404,6 @@ export class ChatBskyConvoNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
-  getConvo<AV extends AuthVerifier>(
-    cfg: ConfigOf<
-      AV,
-      ChatBskyConvoGetConvo.Handler<ExtractAuth<AV>>,
-      ChatBskyConvoGetConvo.HandlerReqCtx<ExtractAuth<AV>>
-    >,
-  ) {
-    const nsid = 'chat.bsky.convo.getConvo' // @ts-ignore
-    return this._server.xrpc.method(nsid, cfg)
-  }
-
   getConvoAvailability<AV extends AuthVerifier>(
     cfg: ConfigOf<
       AV,
@@ -2364,6 +2423,17 @@ export class ChatBskyConvoNS {
     >,
   ) {
     const nsid = 'chat.bsky.convo.getConvoForMembers' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  getConvo<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      ChatBskyConvoGetConvo.Handler<ExtractAuth<AV>>,
+      ChatBskyConvoGetConvo.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'chat.bsky.convo.getConvo' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 
@@ -2433,17 +2503,6 @@ export class ChatBskyConvoNS {
     return this._server.xrpc.method(nsid, cfg)
   }
 
-  sendMessage<AV extends AuthVerifier>(
-    cfg: ConfigOf<
-      AV,
-      ChatBskyConvoSendMessage.Handler<ExtractAuth<AV>>,
-      ChatBskyConvoSendMessage.HandlerReqCtx<ExtractAuth<AV>>
-    >,
-  ) {
-    const nsid = 'chat.bsky.convo.sendMessage' // @ts-ignore
-    return this._server.xrpc.method(nsid, cfg)
-  }
-
   sendMessageBatch<AV extends AuthVerifier>(
     cfg: ConfigOf<
       AV,
@@ -2452,6 +2511,17 @@ export class ChatBskyConvoNS {
     >,
   ) {
     const nsid = 'chat.bsky.convo.sendMessageBatch' // @ts-ignore
+    return this._server.xrpc.method(nsid, cfg)
+  }
+
+  sendMessage<AV extends AuthVerifier>(
+    cfg: ConfigOf<
+      AV,
+      ChatBskyConvoSendMessage.Handler<ExtractAuth<AV>>,
+      ChatBskyConvoSendMessage.HandlerReqCtx<ExtractAuth<AV>>
+    >,
+  ) {
+    const nsid = 'chat.bsky.convo.sendMessage' // @ts-ignore
     return this._server.xrpc.method(nsid, cfg)
   }
 

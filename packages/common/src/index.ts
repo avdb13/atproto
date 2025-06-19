@@ -1,6 +1,7 @@
 export * from '@atproto/common-web'
 export * from './buffers'
 export * from './dates'
+export * from './rand'
 export * from './env'
 export * from './fs'
 export * from './ipld'

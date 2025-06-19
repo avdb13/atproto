@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "com.atproto.server.listIdentityProviders",
+  "id": "com.atproto.sso.listIdentityProviders",
   "defs": {
     "main": {
       "type": "query",
@@ -25,7 +25,7 @@
     },
     "identityProvider": {
       "type": "object",
-      "required": ["id", "name"],
+      "required": ["id"],
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
