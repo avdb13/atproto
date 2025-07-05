@@ -19,6 +19,7 @@ const run = async () => {
       port: 2583,
       hostname: 'localhost',
       enableDidDocWithSession: true,
+      serviceHandleDomains: ["kurosaki.cx"]
     },
     bsky: {
       dbPostgresSchema: 'bsky',
