@@ -9,7 +9,7 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["id", "issuer", "clientId", "scopes", "usePkce", "discoverable"],
+          "required": ["id", "issuer", "clientId", "scope", "usePkce", "discoverable"],
           "properties": {
             "id": { "type": "string" },
             "name": { "type": "string" },
@@ -58,7 +58,7 @@
         "type": "string",
         "knownValues": [
           "client_secret_basic",
-          "client_secret_post",
+          "client_secret_post"
         ]
       }
     },
