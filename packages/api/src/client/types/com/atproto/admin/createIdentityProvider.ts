@@ -23,8 +23,8 @@ export interface InputSchema {
   icon?: string
   issuer: string
   clientId: string
-  clientSecret: string
-  scopes: string[]
+  clientSecret?: string
+  scope: string
   usePkce: boolean
   discoverable: boolean
   metadata?: Metadata
@@ -53,28 +53,55 @@ export class IdentityProviderAlreadyExistsError extends XRPCError {
   }
 }
 
+export class IndiscoverableMetadataError extends XRPCError {
+  constructor(src: XRPCError) {
+    super(src.status, src.error, src.message, src.headers, { cause: src })
+  }
+}
+
+export class IssuerMismatchError extends XRPCError {
+  constructor(src: XRPCError) {
+    super(src.status, src.error, src.message, src.headers, { cause: src })
+  }
+}
+
+export class InsecureTransportError extends XRPCError {
+  constructor(src: XRPCError) {
+    super(src.status, src.error, src.message, src.headers, { cause: src })
+  }
+}
+
+export class PublicWithoutPkceError extends XRPCError {
+  constructor(src: XRPCError) {
+    super(src.status, src.error, src.message, src.headers, { cause: src })
+  }
+}
+
 export function toKnownErr(e: any) {
   if (e instanceof XRPCError) {
     if (e.error === 'IdentityProviderAlreadyExists')
       return new IdentityProviderAlreadyExistsError(e)
+    if (e.error === 'IndiscoverableMetadata')
+      return new IndiscoverableMetadataError(e)
+    if (e.error === 'IssuerMismatch') return new IssuerMismatchError(e)
+    if (e.error === 'InsecureTransport') return new InsecureTransportError(e)
+    if (e.error === 'PublicWithoutPkce') return new PublicWithoutPkceError(e)
   }
 
   return e
 }
 
-export type AuthMethods =
+export type AuthMethod =
   | 'client_secret_basic'
   | 'client_secret_post'
-  | 'client_secret_jwt'
-  | 'private_key_jwt'
-  | 'none'
-  | (string & {})[]
+  | (string & {})
+export type CodeChallengeMethod = 'plain' | 'S256' | (string & {})
 
 export interface Endpoints {
   $type?: 'com.atproto.admin.createIdentityProvider#endpoints'
   authorization: string
   token: string
-  userInfo?: string
+  userinfo?: string
 }
 
 const hashEndpoints = 'endpoints'
@@ -90,6 +117,7 @@ export function validateEndpoints<V>(v: V) {
 export interface Mappings {
   $type?: 'com.atproto.admin.createIdentityProvider#mappings'
   sub: string
+  username?: string
   picture?: string
   email?: string
 }
@@ -108,9 +136,8 @@ export interface Metadata {
   $type?: 'com.atproto.admin.createIdentityProvider#metadata'
   endpoints: Endpoints
   mappings: Mappings
-  authMethods: AuthMethods[]
-  scopesSupported: string[]
-  codeChallengeMethods?: string[]
+  authMethods: AuthMethod[]
+  codeChallengeMethods?: CodeChallengeMethod[]
 }
 
 const hashMetadata = 'metadata'

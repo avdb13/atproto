@@ -22,10 +22,10 @@
     "test": "jest"
   },
   "dependencies": {
-    "@atproto/common-web": "workspace:^",
-    "@atproto/lexicon": "workspace:^",
-    "@atproto/syntax": "workspace:^",
-    "@atproto/xrpc": "workspace:^",
+    "@atproto/common-web": "file:../common-web",
+    "@atproto/lexicon": "file:../lexicon",
+    "@atproto/syntax": "file:../syntax",
+    "@atproto/xrpc": "file:../xrpc",
     "await-lock": "^2.2.2",
     "multiformats": "^9.9.0",
     "tlds": "^1.234.0",

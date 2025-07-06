@@ -2,17 +2,15 @@ import {
   AuthRequiredError,
   InternalServerError,
   InvalidRequestError,
-  MethodNotImplementedError,
 } from "@atproto/xrpc-server";
 import { AppContext } from "../../../../context";
 import { Server } from "../../../../lexicon";
 import * as cookie from "cookie";
 import { base64url } from "jose";
 import {
-  OAuthAuthenticationErrorResponse,
-  OAuthTokenResponse,
+  UnauthorizedClientError,
 } from "@atproto/oauth-provider";
-import { DidDocument, MINUTE } from "@atproto/common";
+import { DidDocument } from "@atproto/common";
 import { validateInputsForLocalPds } from "../server/createAccount";
 import { didDocForSession, safeResolveDidDoc } from "../server/util";
 import {
@@ -27,39 +25,46 @@ import {
 } from "../../../../lexicon/types/com/atproto/server/createAccount";
 import { INVALID_HANDLE } from "@atproto/syntax";
 import { softDeleted } from "../../../../db";
+import { resultPassthru } from "../../../proxy";
+import { GitHubEmailsSchema, OauthResponse, oauthResponseSchema, OidcClaims, oidcClaimsSchema } from "../../../../sso/db/schema/identity-provider";
 import { ActorAccount } from "../../../../account-manager/helpers/account";
+import { ssoLogger as log } from "../../../../logger";
 
 export default function (server: Server, ctx: AppContext) {
   server.com.atproto.sso.getCallback({
-    rateLimit: [
-      {
-        durationMs: 5 * MINUTE,
-        points: 50,
-      },
-    ],
     auth: ctx.authVerifier.userServiceAuthOptional,
-    handler: async ({ params, auth, req, res }) => {
+    handler: async ({ params, auth, req }) => {
+      if (ctx.entrywayAgent) {
+        return resultPassthru(
+          await ctx.entrywayAgent.com.atproto.sso.getCallback(
+            params,
+            ctx.entrywayPassthruHeaders(req),
+          ),
+        )
+      }
+
       const { code, state } = params;
 
-      if (ctx.entrywayAgent) {
-        throw new MethodNotImplementedError("Cannot proxy SSO callbacks yet");
-      }
-
       if (!req.headers.cookie) {
-        throw new InvalidRequestError("Cookie header missing");
+        throw new InvalidRequestError("Missing cookie header");
       }
 
-      const cookies = cookie.parse(
-        req.headers.cookie,
-      ) as Record<string, undefined | string>;
+      let callbackId: string | undefined = undefined;
 
-      const callbackId = cookies["atproto-callback"];
+      if (typeof req.headers.cookie === 'string') {
+        try {
+          const cookies: Record<string, string | undefined>
+            = cookie.parse(req.headers.cookie);
+
+          callbackId = cookies["atproto-callback"];
+        } catch (err) {
+          throw new InvalidRequestError(`Invalid cookie header: ${err}`);
+        }
+      }
 
       if (!callbackId) {
-        throw new InvalidRequestError("Failed to extract callback cookie");
+        throw new InvalidRequestError("Missing callback cookie");
       }
-
-      // TODO: state check
 
       const callback = await ctx.ssoManager.getAuthCallback(callbackId);
 
@@ -67,20 +72,36 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError("Failed to find callback");
       }
 
-      if (callback.state !== callbackId) {
-        throw new InvalidRequestError("State mismatch");
+      log.info(callback, `Found callback`);
+
+      if (callbackId !== state) {
+        throw new InvalidRequestError(
+          `State mismatch in callback parameter (expected: ${callbackId}, got: ${state})`
+        );
       }
+
+      log.info(`Callback state is valid`);
 
       const idp = await ctx.ssoManager.getIdentityProvider(callback.idpId);
 
       if (!idp) {
         throw new InvalidRequestError(
-          `Could not find identity provider: ${callback.idpId}`,
+          `Missing identity provider: ${callback.idpId}`
         );
       }
 
+      log.info(idp);
+
+      if (!idp.metadata && idp.discoverable) {
+        idp.metadata = await ctx.ssoManager.fetchMetadata(new URL(idp.issuer));
+
+        await ctx.ssoManager.updateIdentityProvider(idp);
+      }
+
       if (!idp.metadata) {
-        idp.metadata = await ctx.ssoManager.fetchMetadata(idp.id);
+        throw new InternalServerError(
+          `Missing metadata for identity provider: ${callback.idpId}`
+        );
       }
 
       const data = new URLSearchParams({
@@ -88,125 +109,291 @@ export default function (server: Server, ctx: AppContext) {
         code,
         redirect_uri: callback.redirectUri,
         client_id: idp.clientId,
-        client_secret: idp.clientSecret,
-        ...callback.codeVerifier && { code_verifier: callback.codeVerifier },
       });
 
-      let claimsFound: Record<
-        string,
-        undefined | string
-      > = {};
+      log.info(idp, "IDP");
 
-      // get and save the tokens
-      const tokenRes = await fetch(idp.metadata.endpoints.token, {
-        method: "POST",
-        headers: {
-          "Content-type": "application/x-www-form-urlencoded",
-          "Accept": "application/json",
-        },
-        body: data,
-      });
+      if (idp.clientSecret && idp.metadata.authMethods?.includes('client_secret_post')) {
+        data.append("client_secret", idp.clientSecret);
+      }
 
-      const body = await tokenRes.json() as OAuthTokenResponse | {
-        error: OAuthAuthenticationErrorResponse;
-      };
+      if (callback.codeVerifier) {
+        data.append("code_verifier", callback.codeVerifier);
+      }
+
+
+      log.info([...data.entries()], `Token endpoint request`);
+
+      let claims: OidcClaims = {};
+
+      let res: Response;
+
+      try {
+        res = await fetch(idp.metadata.endpoints.token, {
+          method: "POST",
+          headers: {
+            "Content-type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            ...!data.get("client_secret") && ({
+              "Authorization": `Basic: ${Buffer.from(idp.clientSecret || "").toString('base64')}`
+            }),
+          },
+          body: data,
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "<unreadable body>");
+
+          throw new InternalServerError(
+            `Failed to fetch token endpoint: ${res.status} ${res.statusText} – ${text}`
+          );
+        }
+
+        log.info(`Token endpoint request successful`);
+      } catch (err) {
+        log.error(err, `Failed to fetch token endpoint`);
+
+        throw new Error(`Failed to fetch token endpoint`);
+      }
+
+      let body: OauthResponse;
+
+      try {
+        body = await res.json().then(token => {
+          log.info(token, `Token endpoint response`);
+
+          return oauthResponseSchema.parse(token);
+        });
+
+        log.info(`Fetching OAuth response successful`);
+      } catch (err) {
+        log.error(err, `Invalid JSON from token endpoint`);
+
+        throw new InternalServerError(`Invalid JSON from token endpoint`);
+      }
 
       if ("error" in body) {
-        throw new InvalidRequestError(`${body.error}`);
+        log.error(body.error, `Failed to fetch token endpoint`);
+
+        throw new InternalServerError(`Failed to fetch token endpoint`);
       }
 
       if (body.id_token) {
-        const idTokenBuffer = body.id_token.split(".").at(1);
+        const buffer = body.id_token.split(".").at(1);
 
-        if (!idTokenBuffer) {
-          throw new InvalidRequestError(`ID token did not contain claims`);
+        if (!buffer) {
+          log.error(body.id_token, `Malformed ID token`);
+
+          throw new InternalServerError(`Malformed ID token`);
         }
 
         const de = new TextDecoder("utf-8");
 
-        claimsFound = JSON.parse(de.decode(
-          base64url.decode(idTokenBuffer),
-        ));
+        try {
+          const tokenClaims = JSON.parse(de.decode(base64url.decode(buffer)));
 
-        console.log(JSON.stringify(claimsFound));
+          log.info(tokenClaims, `Token endpoint claims`);
+
+          claims = oidcClaimsSchema.parse(tokenClaims);
+
+          log.info(`Parsing ID token claims successful`);
+        } catch (err) {
+          log.error(err, `Invalid JSON from token endpoint`);
+
+          throw new InternalServerError(`Invalid JSON from token endpoint`);
+        }
       }
 
       if (idp.metadata.endpoints.userinfo) {
-        const userinfoRes = await fetch(idp.metadata.endpoints.userinfo, {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${body.access_token}`,
-            "Accept": "application/json",
-          },
-        });
+        let res: Response;
 
-        const authHeader = userinfoRes.headers.get("WWW-Authenticate");
+        try {
+          res = await fetch(idp.metadata.endpoints.userinfo, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${body.access_token}`,
+              "Accept": "application/json",
+            },
+          });
 
-        if (authHeader) {
-          if (authHeader.startsWith("Basic ")) {
-            throw new InvalidRequestError(
-              `WWW-Authenticate: Basic`,
+          if (!res.ok) {
+            const text = await res.text().catch(() => "<unreadable body>");
+
+            throw new InternalServerError(
+              `Failed to fetch userinfo endpoint: ${res.status} ${res.statusText} – ${text}`
             );
           }
 
-          if (authHeader.startsWith("Bearer ")) {
-            throw new InvalidRequestError(
-              `WWW-Authenticate: ${authHeader.substring("Bearer ".length)}`,
-            );
-          }
+          log.info(`Fetching userinfo endpoint successful`);
+        } catch (err) {
+          log.error(err, `Failed to fetch userinfo endpoint`);
+
+          throw new InternalServerError(`Failed to fetch userinfo endpoint`);
         }
 
-        claimsFound = {
-          ...claimsFound,
-          ...await userinfoRes.json() as Record<
-            string,
-            undefined | string
-          >,
-        };
+        const wwwAuth = res.headers.get("WWW-Authenticate");
 
-        console.log(JSON.stringify(claimsFound));
+        if (wwwAuth) {
+          if (wwwAuth.startsWith("Basic ")) {
+            throw new UnauthorizedClientError(`Basic authentication required`);
+          }
+
+          if (wwwAuth.startsWith("Bearer ")) {
+            throw new UnauthorizedClientError(
+              `Bearer token rejected: ${wwwAuth.substring("Bearer ".length).trim()}`
+            );
+          }
+
+          throw new UnauthorizedClientError(
+            `Unsupported WWW-Authenticate header: ${wwwAuth}`
+          );
+        }
+
+        log.info(`No error found in WWW-Authenticate header`);
+
+        try {
+          const userinfoClaims = await res.json().then(userinfo => {
+            log.info(userinfo, `Userinfo endpoint response`);
+
+            return oidcClaimsSchema.parse(userinfo);
+          });
+
+          log.info(userinfoClaims, `Userinfo endpoint claims`);
+
+          claims = {
+            ...claims,
+            ...userinfoClaims,
+          };
+
+          log.info(`Parsing userinfo claims successful`);
+        } catch (err) {
+          log.error(err, `Invalid JSON from userinfo endpoint`);
+
+          throw new InternalServerError(`Invalid JSON from userinfo endpoint`);
+        }
       }
 
-      const sub = claimsFound[idp.metadata.mappings.sub];
+      const sub = claims?.[idp.metadata.mappings.sub];
 
       if (!sub) {
-        throw new InvalidRequestError(
-          `Absent 'sub' claim`,
+        throw new InternalServerError(
+          `Absent subject in claims: ${JSON.stringify(claims, null, 4)}`,
         );
       }
 
-      const claims = await ctx.ssoManager.getAccountClaims(sub, idp.id);
+      let account: ActorAccount | null = null;
 
-      let account = claims &&
-        await ctx.accountManager.getAccount(
-          claims.did.toLowerCase(),
+      const accountClaims = await ctx.ssoManager.getAccountClaims(sub, idp.id);
+
+      if (accountClaims) {
+        account = await ctx.accountManager.getAccount(
+          accountClaims.did.toLowerCase(),
           {
             includeDeactivated: true,
             includeTakenDown: true,
           },
         );
 
-      if (!account) {
-        // TODO: make sure AuthClaims get dropped
-        if (claims) {
-          await ctx.ssoManager.deleteAuthClaims(claims.did, idp.id);
+        if (!account) {
+          await ctx.ssoManager.deleteAuthClaims(accountClaims.did, idp.id);
 
           throw new InternalServerError(
-            `unlinked account claims`,
+            `Unlinked account claims for ${accountClaims.sub}`,
           );
         }
 
-        const email = idp.metadata.mappings.email &&
-            claimsFound[idp.metadata.mappings.email] || undefined;
+        log.info(account.handle, `Found existing account`);
+      }
 
-        const username = claimsFound["preferred_username"] ||
-          claimsFound["nickname"] ||
-          sub;
+      if (!account) {
+        const username = idp.metadata.mappings.username ? claims?.[idp.metadata.mappings.username] : claims?.["preferred_username"] ||
+          claims?.["nickname"];
+
+        if (typeof username !== "string") {
+          if (typeof username === "undefined") {
+            throw new InternalServerError(
+              `Username claim is absent`,
+            );
+          }
+          throw new InternalServerError(
+            `Username claim is not a string: ${username} (${typeof username})`,
+          );
+        }
+
+        let email = idp.metadata.mappings.email ? claims?.[idp.metadata.mappings.email] : claims?.["email"];
+
+        if (idp.issuer === "https://github.com") {
+          try {
+            res = await fetch("https://api.github.com/user/emails", {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${body.access_token}`,
+                "Accept": "application/json",
+              },
+            });
+
+            if (!res.ok) {
+              const text = await res.text().catch(() => "<unreadable body>");
+
+              throw new InternalServerError(
+                `Failed to fetch email endpoint: ${res.status} ${res.statusText} – ${text}`
+              );
+            }
+
+            log.info(`Fetching email endpoint successful`);
+          } catch (err) {
+            log.error(err, `Failed to fetch email endpoint`);
+
+            throw new InternalServerError(`Failed to fetch email endpoint`);
+          }
+
+          try {
+            const emails = await res.json().then(emails => {
+              log.info(emails, `Email endpoint response`);
+
+              return GitHubEmailsSchema.parse(emails);
+            });
+
+            log.info(emails, `Email endpoint response`);
+
+            const primary = emails.find(email => email.primary && email.verified);
+
+            if (!primary) {
+              throw new InvalidRequestError(`No primary verified Github email`);
+            }
+
+            email = primary.email;
+
+            log.info(`Parsing emails successful`);
+          } catch (err) {
+            log.error(err, `Invalid JSON from userinfo endpoint`);
+
+            throw new InternalServerError(`Invalid JSON from userinfo endpoint`);
+          }
+
+        }
+
+        if (typeof email !== "string") {
+          if (typeof email === "undefined") {
+            throw new InternalServerError(
+              `email claim is absent`,
+            );
+          }
+          throw new InternalServerError(
+            `Username email is not a string: ${email} (${typeof email})`,
+          );
+        }
+
+        const data = {
+          email,
+          handle: `${username}.test`
+        }
+
+        log.info(data, `Registering new account`);
 
         // const { handle, did, didDoc, accessJwt, refreshJwt } =
         const { did } = await createAccount(ctx, auth, {
-          email,
-          handle: `${username}.${ctx.cfg.service.hostname}`,
+          ...data,
           did: undefined,
           inviteCode: undefined,
           verificationCode: undefined,
@@ -235,13 +422,16 @@ export default function (server: Server, ctx: AppContext) {
         } catch (err) {
           await ctx.ssoManager.deleteAuthClaims(did, idp.id);
           await ctx.actorStore.destroy(did);
-          throw err;
+
+          throw new InternalServerError(
+            `Failed to save auth claims: ${err}`
+          );
         }
       }
 
       if (!account) {
         throw new InternalServerError(
-          `TODO`,
+          `Account was registered but does not exist`,
         );
       }
 
@@ -265,6 +455,14 @@ export default function (server: Server, ctx: AppContext) {
 
       const { status, active } = formatAccountStatus(account);
 
+      const emailConfirmed = claims?.["email_verified"];
+
+      if (typeof emailConfirmed !== "boolean" && typeof emailConfirmed !== "undefined") {
+        throw new InternalServerError(
+          `EmailVerified claim is not a boolean: ${emailConfirmed} (${typeof emailConfirmed})`,
+        );
+      }
+
       return {
         encoding: "application/json",
         body: {
@@ -272,7 +470,7 @@ export default function (server: Server, ctx: AppContext) {
           didDoc,
           handle: account.handle ?? INVALID_HANDLE,
           email: account.email ?? undefined,
-          emailConfirmed: claimsFound["email_verified"] || false,
+          emailConfirmed: emailConfirmed || false,
           accessJwt,
           refreshJwt,
           active,

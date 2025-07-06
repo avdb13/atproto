@@ -46,21 +46,24 @@
       "errors": [
         { "name": "IdentityProviderAlreadyExists" },
         { "name": "IndiscoverableMetadata" },
-        { "name": "InvalidRedirectURI" },
         { "name": "IssuerMismatch" },
         { "name": "InsecureTransport" },
         { "name": "PublicWithoutPkce" }
       ]
     },
-    "authMethods": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "knownValues": [
-          "client_secret_basic",
-          "client_secret_post"
-        ]
-      }
+    "authMethod": {
+    "type": "string",
+      "knownValues": [
+        "client_secret_basic",
+        "client_secret_post"
+      ]
+    },
+    "codeChallengeMethod": {
+      "type": "string",
+      "knownValues": [
+        "plain",
+        "S256"
+      ]
     },
     "endpoints": {
       "type": "object",
@@ -68,7 +71,7 @@
       "properties": {
         "authorization": { "type": "string", "format": "uri" },
         "token": { "type": "string", "format": "uri" },
-        "userInfo": { "type": "string", "format": "uri" }
+        "userinfo": { "type": "string", "format": "uri" }
       }
     },
     "mappings": {
@@ -76,6 +79,7 @@
       "required": ["sub"],
       "properties": {
         "sub": { "type": "string" },
+        "username": { "type": "string" },
         "picture": { "type": "string" },
         "email": { "type": "string" }
       }
@@ -88,7 +92,17 @@
         "mappings": { "type": "ref", "ref": "#mappings" },
         "authMethods": {
           "type": "array",
-          "items": { "type": "ref", "ref": "#authMethods" }
+          "items": {
+            "type": "ref",
+            "ref": "#authMethod"
+          }
+        },
+        "codeChallengeMethods": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#codeChallengeMethod"
+          }
         }
       }
     }

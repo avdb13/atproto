@@ -1546,11 +1546,12 @@ export class ComAtprotoSsoNS {
     params?: ComAtprotoSsoListIdentityProviders.QueryParams,
     opts?: ComAtprotoSsoListIdentityProviders.CallOptions,
   ): Promise<ComAtprotoSsoListIdentityProviders.Response> {
-    return this._client
-      .call('com.atproto.sso.listIdentityProviders', params, undefined, opts)
-      .catch((e) => {
-        throw ComAtprotoSsoListIdentityProviders.toKnownErr(e)
-      })
+    return this._client.call(
+      'com.atproto.sso.listIdentityProviders',
+      params,
+      undefined,
+      opts,
+    )
   }
 }
 

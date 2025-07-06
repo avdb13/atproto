@@ -1,10 +1,10 @@
 import { Selectable } from "kysely"
 
 export interface AuthCallback {
-  idpId: string
-  scopes: string,
   state: string,
+  scope: string,
   nonce: string,
+  idpId: string
   redirectUri: string,
   codeVerifier: string | null,
 }

@@ -1,31 +1,20 @@
-import { InternalServerError } from "@atproto/xrpc-server";
 import { fromJson, toJson } from "../../db";
-import { IdentityProvider, SSODb } from "../db";
-import { isAuthMethod, Metadata } from "../db/schema/identity-provider";
-import { OidcMetadata } from "oidc-client-ts";
+import { ssoLogger as log } from "../../logger";
+import { SSODb } from "../db";
+import { IdentityProviderData, isAuthMethod, isCodeChallengeMethod, Metadata, oidcMetadataSchema } from "../db/schema/identity-provider";
 
 export const selectQB = (db: SSODb) =>
   db.db.selectFrom("identity_provider").selectAll();
 
-export type Data =
-  & Omit<IdentityProvider, "scopes" | "metadata" | "usePkce" | "discoverable">
-  & {
-    scopes: Array<string>;
-    usePkce: boolean;
-    discoverable: boolean;
-    metadata: Metadata | null;
-  };
-
 export const getIdentityProvider = (
   db: SSODb,
   id: string,
-): Promise<Data | null> =>
+): Promise<IdentityProviderData | null> =>
   selectQB(db).where((qb) => qb.where("id", "=", id))
     .executeTakeFirst().then((found) =>
       found
         ? {
           ...found,
-          scopes: found.scopes.split(" "),
           usePkce: found.usePkce === 1,
           discoverable: found.discoverable === 1,
           metadata: found.metadata ? fromJson(found.metadata) : null,
@@ -35,13 +24,12 @@ export const getIdentityProvider = (
 
 export const listIdentityProviders = (
   db: SSODb,
-): Promise<Array<Data>> =>
+): Promise<Array<IdentityProviderData>> =>
   selectQB(db)
     .execute().then((arr) =>
       arr.map((found) => (
         {
           ...found,
-          scopes: found.scopes.split(" "),
           usePkce: found.usePkce === 1,
           discoverable: found.discoverable === 1,
           metadata: found.metadata ? fromJson(found.metadata) : null,
@@ -51,14 +39,13 @@ export const listIdentityProviders = (
 
 export const registerIdentityProvider = (
   db: SSODb,
-  opts: Data,
+  opts: IdentityProviderData,
 ): Promise<string | null> =>
   db.executeWithRetry(
     db.db
       .insertInto("identity_provider")
       .values({
         ...opts,
-        scopes: opts.scopes.join(" "),
         usePkce: opts.usePkce ? 1 : 0,
         discoverable: opts.discoverable ? 1 : 0,
         metadata: opts.metadata ? toJson(opts.metadata) : null,
@@ -67,91 +54,29 @@ export const registerIdentityProvider = (
       .returning("id"),
   ).then(([res]) => res?.id || null);
 
-export const fetchMetadata = async (
+export const updateIdentityProvider = async (
   db: SSODb,
-  id: string,
-): Promise<Metadata> => {
-  const idp = await getIdentityProvider(db, id);
+  opts: IdentityProviderData,
+): Promise<string> => {
+  const res = await db.db.updateTable("identity_provider")
+    .set({
+      ...opts,
+      usePkce: opts.usePkce ? 1 : 0,
+      discoverable: opts.discoverable ? 1 : 0,
+      metadata: opts.metadata ? toJson(opts.metadata) : null,
+    })
+    .where("id", "=", opts.id)
+    .returning("id")
+    .executeTakeFirst();
 
-  if (!idp) {
-    throw new InternalServerError(`Missing identity provider with ID '${id}'`);
-  }
-
-  try {
-    const uri = new URL(idp.issuer);
-    uri.pathname = "/.well-known/openid-configuration";
-
-    const response = await fetch(uri, {
-      method: "GET",
-      headers: {
-        "Accept": "application/json",
-      },
-    });
-
-    if (!response.ok || response.status !== 200) {
-      throw new InternalServerError(
-        `Failed to fetch metadata for identity provider: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const metadata = await response.json() as Partial<OidcMetadata>;
-
-    if (
-      !metadata.issuer || !metadata.authorization_endpoint ||
-      !metadata.token_endpoint ||
-      !metadata.token_endpoint_auth_methods_supported
-    ) {
-      throw new InternalServerError(
-        `Missing field in metadata for identity provider`,
-      );
-    }
-
-    if (!metadata.claims_supported?.some((c) => c === "sub")) {
-      throw new InternalServerError(
-        `Missing sub claim for identity provider, claims supported: ${metadata.claims_supported}`,
-      );
-    }
-
-    const updated: Metadata = {
-      endpoints: {
-        authorization: metadata.authorization_endpoint,
-        token: metadata.token_endpoint,
-        userinfo: metadata.userinfo_endpoint ?? null,
-      },
-      mappings: {
-        sub: "sub",
-        picture: metadata.claims_supported.find((c) => c === "picture") ?? null,
-        email: metadata.claims_supported.find((c) => c === "email") ?? null,
-      },
-      authMethods: metadata.token_endpoint_auth_methods_supported.filter(
-        isAuthMethod,
-      ),
-      scopesSupported: metadata.scopes_supported ?? [],
-      codeChallengeMethods: metadata.code_challenge_methods_supported ?? [],
-    };
-
-    const res = await db.db
-      .updateTable("identity_provider")
-      .set({
-        metadata: toJson(updated),
-      })
-      .where("id", "=", idp.id)
-      .returning("id")
-      .executeTakeFirst();
-
-    if (!res) {
-      throw new InternalServerError(
-        `Missing identity provider with ID '${idp.id}'`,
-      );
-    }
-
-    return updated;
-  } catch (error) {
-    throw new InternalServerError(
-      `Failed to fetch metadata for identity provider: ${error}`,
+  if (!res?.id) {
+    throw new Error(
+      `Missing identity provider: '${opts.id}'`,
     );
   }
-};
+
+  return res.id;
+}
 
 export const deleteIdentityProvider = (
   db: SSODb,
@@ -159,4 +84,65 @@ export const deleteIdentityProvider = (
 ): Promise<void> =>
   db.executeWithRetry(
     db.db.deleteFrom("identity_provider").where("id", "=", id),
-  ).then(() => {});
+  ).then(() => { });
+
+export const fetchMetadata = async (
+  issuer: URL,
+): Promise<Metadata> => {
+  log.info(`fetching metadata from ${issuer}`);
+
+  let uri = issuer;
+
+  try {
+    uri.pathname = "/.well-known/openid-configuration";
+
+    const res = await fetch(uri, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Indiscoverable OIDC metadata: ${res.status} ${res.statusText}`);
+    }
+
+    const {
+      issuer: metadataIssuer,
+      authorization_endpoint,
+      token_endpoint,
+      userinfo_endpoint,
+      claims_supported,
+      token_endpoint_auth_methods_supported,
+      scopes_supported,
+      code_challenge_methods_supported,
+    } = await res.json().then(md => oidcMetadataSchema.parse(md));
+
+    if (issuer.host !== metadataIssuer.host) {
+      throw new Error(`Issuer host mismatch in OIDC metadata (expected: ${issuer.host}, got: ${metadataIssuer.host})`);
+    }
+
+    return {
+      endpoints: {
+        authorization: authorization_endpoint.toString(),
+        token: token_endpoint.toString(),
+        userinfo: userinfo_endpoint?.toString(),
+      },
+      mappings: {
+        sub: "sub",
+        picture: claims_supported?.find(c => c === "picture"),
+        email: claims_supported?.find(c => c === "email"),
+      },
+      authMethods: token_endpoint_auth_methods_supported?.filter(
+        isAuthMethod,
+      ),
+      scopesSupported: scopes_supported,
+      codeChallengeMethods: code_challenge_methods_supported?.filter(
+        isCodeChallengeMethod
+      ),
+    };
+  } catch (err) {
+    throw new Error(`Failed to fetch OIDC metadata: ${err}`);
+  }
+};
+

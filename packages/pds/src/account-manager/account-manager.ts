@@ -113,6 +113,8 @@ export class AccountManager {
   ): Promise<string> {
     const normalized = baseNormalizeAndValidate(handle)
 
+    console.log(`normalized: ${normalized}, isValidTld: ${isValidTld(normalized)}`)
+
     // tld validation
     if (!isValidTld(normalized)) {
       throw new InvalidRequestError(

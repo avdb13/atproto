@@ -25,8 +25,7 @@ export const schemaDict = {
               'id',
               'issuer',
               'clientId',
-              'clientSecret',
-              'scopes',
+              'scope',
               'usePkce',
               'discoverable',
             ],
@@ -51,11 +50,8 @@ export const schemaDict = {
               clientSecret: {
                 type: 'string',
               },
-              scopes: {
-                type: 'array',
-                items: {
-                  type: 'string',
-                },
+              scope: {
+                type: 'string',
               },
               usePkce: {
                 type: 'boolean',
@@ -86,20 +82,27 @@ export const schemaDict = {
           {
             name: 'IdentityProviderAlreadyExists',
           },
+          {
+            name: 'IndiscoverableMetadata',
+          },
+          {
+            name: 'IssuerMismatch',
+          },
+          {
+            name: 'InsecureTransport',
+          },
+          {
+            name: 'PublicWithoutPkce',
+          },
         ],
       },
-      authMethods: {
-        type: 'array',
-        items: {
-          type: 'string',
-          knownValues: [
-            'client_secret_basic',
-            'client_secret_post',
-            'client_secret_jwt',
-            'private_key_jwt',
-            'none',
-          ],
-        },
+      authMethod: {
+        type: 'string',
+        knownValues: ['client_secret_basic', 'client_secret_post'],
+      },
+      codeChallengeMethod: {
+        type: 'string',
+        knownValues: ['plain', 'S256'],
       },
       endpoints: {
         type: 'object',
@@ -113,7 +116,7 @@ export const schemaDict = {
             type: 'string',
             format: 'uri',
           },
-          userInfo: {
+          userinfo: {
             type: 'string',
             format: 'uri',
           },
@@ -126,6 +129,9 @@ export const schemaDict = {
           sub: {
             type: 'string',
           },
+          username: {
+            type: 'string',
+          },
           picture: {
             type: 'string',
           },
@@ -136,7 +142,7 @@ export const schemaDict = {
       },
       metadata: {
         type: 'object',
-        required: ['endpoints', 'mappings', 'authMethods', 'scopesSupported'],
+        required: ['endpoints', 'mappings', 'authMethods'],
         properties: {
           endpoints: {
             type: 'ref',
@@ -150,19 +156,14 @@ export const schemaDict = {
             type: 'array',
             items: {
               type: 'ref',
-              ref: 'lex:com.atproto.admin.createIdentityProvider#authMethods',
-            },
-          },
-          scopesSupported: {
-            type: 'array',
-            items: {
-              type: 'string',
+              ref: 'lex:com.atproto.admin.createIdentityProvider#authMethod',
             },
           },
           codeChallengeMethods: {
             type: 'array',
             items: {
-              type: 'string',
+              type: 'ref',
+              ref: 'lex:com.atproto.admin.createIdentityProvider#codeChallengeMethod',
             },
           },
         },
@@ -3629,11 +3630,6 @@ export const schemaDict = {
             },
           },
         },
-        errors: [
-          {
-            name: 'AccountTakedown',
-          },
-        ],
       },
       identityProvider: {
         type: 'object',

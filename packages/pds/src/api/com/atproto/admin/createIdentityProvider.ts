@@ -1,50 +1,76 @@
 import {
+  InternalServerError,
   InvalidRequestError,
-  MethodNotImplementedError,
 } from "@atproto/xrpc-server";
 import { AppContext } from "../../../../context";
 import { Server } from "../../../../lexicon";
-import { AuthMethod } from "../../../../sso/db/schema/identity-provider";
+import { isAuthMethod, isCodeChallengeMethod, Metadata } from "../../../../sso/db/schema/identity-provider";
+import { ssoLogger as log } from "../../../../logger";
+// import { resultPassthru } from "../../../proxy";
 
 export default function (server: Server, ctx: AppContext) {
   server.com.atproto.admin.createIdentityProvider({
     auth: ctx.authVerifier.userServiceAuthOptional,
     handler: async ({ input }) => {
+      const body = input.body;
+
+      log.info(body);
+
       if (ctx.entrywayAgent) {
-        throw new MethodNotImplementedError(
-          "Cannot proxy creating identity providers yet",
-        );
+        throw new InternalServerError(`Unimplemented passthrough`);
+
+        // return resultPassthru(
+        //   await ctx.entrywayAgent.com.atproto.admin.createIdentityProvider(
+        //     body,
+        //     ctx.entrywayPassthruHeaders(req),
+        //   ),
+        // )
       }
 
-      const idp = input.body;
+      let issuer: URL;
+
+      try {
+        issuer = new URL(body.issuer);
+
+        if (issuer.protocol !== "https:") {
+          throw new InvalidRequestError(`Issuer URL must use HTTPS: ${body.issuer}`);
+        }
+      } catch (err) {
+        throw new InvalidRequestError(`Invalid issuer URL: ${body.issuer}`);
+      }
+
+      if (!body.clientSecret && !body.usePkce) {
+        throw new InvalidRequestError(`Misisng client secret, PKCE required`);
+      }
+
+      let metadata: Metadata | null = null;
+
+      if (!body.metadata) {
+        if (!body.discoverable) {
+          throw new InvalidRequestError(
+            `Missing metadata for identity provider`
+          );
+        }
+
+        metadata = await ctx.ssoManager.fetchMetadata(issuer);
+      } else {
+        metadata = ({
+          ...body.metadata,
+          authMethods: body.metadata.authMethods.filter(
+            isAuthMethod
+          ),
+          codeChallengeMethods: body.metadata.codeChallengeMethods?.filter(
+            isCodeChallengeMethod
+          ),
+        });
+      }
 
       const idpId = await ctx.ssoManager.createIdentityProvider({
-        id: idp.id,
-        name: idp.name ?? null,
-        icon: idp.icon ?? null,
-        issuer: idp.issuer,
-        clientId: idp.clientId,
-        clientSecret: idp.clientSecret,
-        scopes: idp.scopes,
-        usePkce: idp.usePkce,
-        discoverable: idp.discoverable,
-        metadata: !idp.discoverable && idp.metadata
-          ? {
-            endpoints: {
-              authorization: idp.metadata.endpoints.authorization,
-              token: idp.metadata.endpoints.token,
-              userinfo: idp.metadata.endpoints.userInfo ?? null,
-            },
-            mappings: {
-              sub: idp.metadata.mappings.sub,
-              picture: idp.metadata.mappings.picture ?? null,
-              email: idp.metadata.mappings.email ?? null,
-            },
-            authMethods: idp.metadata.authMethods.map((m) => m as AuthMethod),
-            scopesSupported: idp.metadata.scopesSupported,
-            codeChallengeMethods: idp.metadata.codeChallengeMethods ?? [],
-          }
-          : null,
+        ...body,
+        name: body.name || null,
+        icon: body.icon || null,
+        clientSecret: body.clientSecret || null,
+        metadata,
       });
 
       if (!idpId) {

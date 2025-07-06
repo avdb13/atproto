@@ -1,12 +1,12 @@
 import { AuthCallback, AuthClaims, getDb, getMigrator, SSODb } from "./db";
 
 import {
-  Data,
   deleteIdentityProvider,
   fetchMetadata,
   getIdentityProvider,
   listIdentityProviders,
   registerIdentityProvider,
+  updateIdentityProvider,
 } from "./helpers/identity-provider";
 import {
   deleteAuthCallback,
@@ -19,6 +19,8 @@ import {
   getAuthClaims,
   registerAuthClaims,
 } from "./helpers/auth-claims";
+import { IdentityProviderData } from "./db/schema/identity-provider";
+import { AuthClaimsData, JsonValue } from "./db/schema/auth-claims";
 
 export class SSOManager {
   readonly db: SSODb;
@@ -50,17 +52,23 @@ export class SSOManager {
   }
 
   createIdentityProvider(
-    opts: Data,
+    opts: IdentityProviderData,
   ) {
     return registerIdentityProvider(this.db, opts);
   }
 
-  fetchMetadata(id: string) {
-    return fetchMetadata(this.db, id);
+  updateIdentityProvider(
+    opts: IdentityProviderData,
+  ) {
+    return updateIdentityProvider(this.db, opts);
   }
 
   deleteIdentityProvider(id: string) {
     return deleteIdentityProvider(this.db, id);
+  }
+
+  fetchMetadata(issuer: URL) {
+    return fetchMetadata(issuer);
   }
 
   getAuthCallback(id: string) {
@@ -79,7 +87,7 @@ export class SSOManager {
     return getAuthClaims(this.db, did, idpId);
   }
 
-  createAuthClaims(opts: AuthClaims) {
+  createAuthClaims(opts: AuthClaimsData) {
     return registerAuthClaims(this.db, opts);
   }
 
@@ -87,7 +95,7 @@ export class SSOManager {
     return deleteAuthClaims(this.db, did, idpId);
   }
 
-  getAccountClaims(sub: string, idpId: string) {
+  getAccountClaims(sub: JsonValue, idpId: string) {
     return getAccountClaims(this.db, sub, idpId);
   }
 }

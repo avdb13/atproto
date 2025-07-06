@@ -1,6 +1,6 @@
 import {
+  InternalServerError,
   InvalidRequestError,
-  MethodNotImplementedError,
 } from "@atproto/xrpc-server";
 import { AppContext } from "../../../../context";
 import { Server } from "../../../../lexicon";
@@ -8,7 +8,9 @@ import { randomBytes, subtle } from "node:crypto";
 import { CookieSerializeOptions, serialize as serializeCookie } from "cookie";
 import { base64url } from "jose";
 import { ServerResponse } from "node:http";
+import { resultPassthru } from "../../../proxy";
 import { ssoLogger as log } from "../../../../logger";
+import { CodeChallengeMethod } from "../../../../sso/db/schema/identity-provider";
 
 export function appendHeader(
   res: ServerResponse,
@@ -38,8 +40,15 @@ export function generateRandomStr(length: number) {
   return randomBytes(Math.ceil(length / 2)).toString("hex").slice(0, length);
 }
 
-const generatePKCE = async () => {
-  const verifier = generateRandomStr(32);
+const generatePKCE = async (method: CodeChallengeMethod) => {
+  const verifier = generateRandomStr(64);
+
+  if (method === "plain") {
+    return {
+      challenge: verifier,
+      verifier,
+    };
+  }
 
   const digest = await subtle.digest(
     "SHA-256",
@@ -54,9 +63,14 @@ const generatePKCE = async () => {
 
 export default function (server: Server, ctx: AppContext) {
   server.com.atproto.sso.getRedirect({
-    handler: async ({ params: { idpId, redirectUri }, res }) => {
+    handler: async ({ params: { idpId, redirectUri }, req, res }) => {
       if (ctx.entrywayAgent) {
-        throw new MethodNotImplementedError("Cannot proxy SSO redirects yet");
+        return resultPassthru(
+          await ctx.entrywayAgent.com.atproto.sso.getRedirect(
+            { idpId, redirectUri },
+            ctx.entrywayPassthruHeaders(req),
+          ),
+        )
       }
 
       const idp = await ctx.ssoManager.getIdentityProvider(idpId);
@@ -69,35 +83,46 @@ export default function (server: Server, ctx: AppContext) {
 
       try {
         new URL(redirectUri);
-      } catch (error) {
+      } catch (err) {
         throw new InvalidRequestError(
-          `Could not parse redirect URI: ${error}`,
+          `Invalid redirect URI: ${err}`,
         );
       }
 
-      if (!idp.metadata) {
-        console.log("fetching metadata");
+      log.info(idp, "IDP");
 
-        idp.metadata = await ctx.ssoManager.fetchMetadata(idp.id);
+      if (!idp.metadata && idp.discoverable) {
+        idp.metadata = await ctx.ssoManager.fetchMetadata(new URL(idp.issuer));
+
+        await ctx.ssoManager.updateIdentityProvider(idp);
       }
 
-      const pkce = idp.usePkce &&
-          idp.metadata.codeChallengeMethods.some((m) => m === "S256")
-        ? await generatePKCE()
+      if (!idp.metadata) {
+        throw new InternalServerError(
+          `Missing metadata for identity provider: ${idp.id}`
+        );
+      }
+
+      const codeChallengeMethods = idp.metadata.codeChallengeMethods;
+
+      const codeChallengeMethod = codeChallengeMethods && codeChallengeMethods.length > 0 &&
+        (codeChallengeMethods.find(m => m === "S256")
+          || codeChallengeMethods.find(m => m === "plain"));
+
+      const pkce = idp.usePkce && codeChallengeMethod
+        ? await generatePKCE(codeChallengeMethod)
         : null;
 
       const authCallback = {
-        idpId: idp.id,
         state: generateRandomStr(32),
         nonce: generateRandomStr(32),
-        scopes: idp.scopes.filter((s) =>
-          idp.metadata
-            ? idp.metadata.scopesSupported.some((ss) => s === ss)
-            : true
-        ).join(" "),
+        scope: idp.scope,
+        idpId: idp.id,
         redirectUri,
         codeVerifier: pkce?.verifier || null,
       };
+
+      log.info(authCallback, "Created callback`")
 
       await ctx.ssoManager.createAuthCallback(authCallback);
 
@@ -105,32 +130,22 @@ export default function (server: Server, ctx: AppContext) {
         client_id: idp.clientId,
         redirect_uri: redirectUri,
         response_type: "code",
-        scope: idp.scopes.join(" "),
+        scope: idp.scope,
         state: authCallback.state,
+        ...(pkce && { code_challenge: pkce.challenge, code_challenge_method: "S256" })
       });
 
       const location = new URL(idp.metadata.endpoints.authorization);
 
-      for (const [k, v] of query.entries()) {
+      for (const [k, v] of [...query.entries()]) {
         location.searchParams.append(k, v);
       }
 
-      if (pkce) {
-        location.searchParams.append("code_challenge", pkce.challenge);
-        location.searchParams.append("code_challenge_method", "S256");
-      }
-
-      const cookie = serializeCookie(
+      appendHeader(res, "Set-Cookie", serializeCookie(
         "atproto-callback",
         authCallback.state,
-        getCallbackCookieOptions(),
-      );
-
-      appendHeader(
-        res,
-        "Set-Cookie",
-        cookie,
-      );
+        getCallbackCookieOptions()
+      ));
 
       appendHeader(res, "Location", location.toString());
 

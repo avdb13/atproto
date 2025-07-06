@@ -24,8 +24,8 @@ export interface InputSchema {
   icon?: string
   issuer: string
   clientId: string
-  clientSecret: string
-  scopes: string[]
+  clientSecret?: string
+  scope: string
   usePkce: boolean
   discoverable: boolean
   metadata?: Metadata
@@ -49,7 +49,12 @@ export interface HandlerSuccess {
 export interface HandlerError {
   status: number
   message?: string
-  error?: 'IdentityProviderAlreadyExists'
+  error?:
+    | 'IdentityProviderAlreadyExists'
+    | 'IndiscoverableMetadata'
+    | 'IssuerMismatch'
+    | 'InsecureTransport'
+    | 'PublicWithoutPkce'
 }
 
 export type HandlerOutput = HandlerError | HandlerSuccess | HandlerPipeThrough
@@ -64,19 +69,17 @@ export type HandlerReqCtx<HA extends HandlerAuth = never> = {
 export type Handler<HA extends HandlerAuth = never> = (
   ctx: HandlerReqCtx<HA>,
 ) => Promise<HandlerOutput> | HandlerOutput
-export type AuthMethods =
+export type AuthMethod =
   | 'client_secret_basic'
   | 'client_secret_post'
-  | 'client_secret_jwt'
-  | 'private_key_jwt'
-  | 'none'
-  | (string & {})[]
+  | (string & {})
+export type CodeChallengeMethod = 'plain' | 'S256' | (string & {})
 
 export interface Endpoints {
   $type?: 'com.atproto.admin.createIdentityProvider#endpoints'
   authorization: string
   token: string
-  userInfo?: string
+  userinfo?: string
 }
 
 const hashEndpoints = 'endpoints'
@@ -92,6 +95,7 @@ export function validateEndpoints<V>(v: V) {
 export interface Mappings {
   $type?: 'com.atproto.admin.createIdentityProvider#mappings'
   sub: string
+  username?: string
   picture?: string
   email?: string
 }
@@ -110,9 +114,8 @@ export interface Metadata {
   $type?: 'com.atproto.admin.createIdentityProvider#metadata'
   endpoints: Endpoints
   mappings: Mappings
-  authMethods: AuthMethods[]
-  scopesSupported: string[]
-  codeChallengeMethods?: string[]
+  authMethods: AuthMethod[]
+  codeChallengeMethods?: CodeChallengeMethod[]
 }
 
 const hashMetadata = 'metadata'
